@@ -4,65 +4,70 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const dbPath = path.join(__dirname, 'database.json');
 
-// ডাটাবেস লোড করার ফাংশন
-function loadDatabase() {
+// ডাটাবেস লোড করার ফাংশন (একবার লোড করলে ভালো হয়)
+let chatData = {};
+function syncDatabase() {
     try {
-        const data = fs.readFileSync(path.join(__dirname, 'database.json'), 'utf8');
-        return JSON.parse(data);
+        const data = fs.readFileSync(dbPath, 'utf8');
+        chatData = JSON.parse(data);
     } catch (err) {
-        console.error("Error reading database.json:", err);
-        return {};
+        console.error("Database error:", err);
+        chatData = {};
     }
 }
+syncDatabase(); // স্টার্ট করার সময় লোড হবে
 
 app.get('/baby', (req, res) => {
-    // ইউজারের পাঠানো টেক্সট (Query: ?text=হাই)
     const userText = req.query.text ? req.query.text.trim().toLowerCase() : "";
-    const chatData = loadDatabase();
-
+    
     if (!userText) {
-        return res.status(400).json({ 
-            error: "Please provide text! Example: /baby?text=hi" 
-        });
+        return res.json({ error: "Please provide text! Example: /baby?text=hi" });
     }
 
     let finalAnswer = "আমি আপনার কথাটি বুঝতে পারিনি। আমাকে আরও শেখান!";
     let found = false;
 
-    // কিওয়ার্ড ম্যাচিং লজিক
-    for (let key in chatData) {
-        // যদি ইউজারের ইনপুটে ডাটাবেসের কোনো কিওয়ার্ড থাকে
-        if (userText.includes(key.toLowerCase())) {
-            const possibleAnswers = chatData[key];
-
-            // যদি উত্তরগুলো একটি তালিকায় (Array) থাকে, তবে র‍্যান্ডমলি একটি বেছে নাও
-            if (Array.isArray(possibleAnswers) && possibleAnswers.length > 0) {
-                const randomIndex = Math.floor(Math.random() * possibleAnswers.length);
-                finalAnswer = possibleAnswers[randomIndex];
-            } else {
-                finalAnswer = possibleAnswers; // যদি সিঙ্গেল টেক্সট থাকে
+    // সরাসরি ম্যাচিং করার চেষ্টা (Fastest)
+    if (chatData[userText]) {
+        const results = chatData[userText];
+        finalAnswer = Array.isArray(results) ? results[Math.floor(Math.random() * results.length)] : results;
+        found = true;
+    } else {
+        // কিওয়ার্ড ম্যাচিং লজিক (যদি সরাসরি না পাওয়া যায়)
+        for (let key in chatData) {
+            if (userText.includes(key.toLowerCase())) {
+                const results = chatData[key];
+                finalAnswer = Array.isArray(results) ? results[Math.floor(Math.random() * results.length)] : results;
+                found = true;
+                break; 
             }
-            found = true;
-            break; 
         }
     }
 
-    // সুন্দর করে রেসপন্স পাঠানো
     res.json({
         success: true,
         answer: finalAnswer,
-        author: "Tamim Khan",
-        status: found ? "Match Found" : "Not Found"
+        author: "Tamim Khan"
     });
 });
 
-// হোম পেজ চেক করার জন্য
-app.get('/', (req, res) => {
-    res.send("Baby API is Running! Created by Tamim.");
+// নতুন কিছু শেখানোর জন্য (Teach endpoint)
+app.get('/teach', (req, res) => {
+    const { ask, ans } = req.query;
+    if (!ask || !ans) return res.json({ error: "Format: /teach?ask=hi&ans=hello" });
+
+    syncDatabase(); // লেটেস্ট ডাটা নিন
+    if (!chatData[ask]) chatData[ask] = [];
+    if (Array.isArray(chatData[ask])) {
+        chatData[ask].push(ans);
+    } else {
+        chatData[ask] = [chatData[ask], ans];
+    }
+
+    fs.writeFileSync(dbPath, JSON.stringify(chatData, null, 2));
+    res.json({ success: true, msg: "শিখিয়ে দিলেন! ধন্যবাদ।" });
 });
 
-app.listen(PORT, () => {
-    console.log(`Server is running on: http://localhost:${PORT}`);
-    console.log(`Test link: http://localhost:${PORT}/baby?text=হাই`);
-});
+app.listen(PORT, () => console.log(`Server: http://localhost:${PORT}`));
