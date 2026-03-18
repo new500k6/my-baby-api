@@ -1,58 +1,48 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const axios = require('axios');
-const cors = require('cors');
-
+const fs = require('fs');
+const path = require('path');
 const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
 
-const mongoURI = "mongodb+srv://tamim-khan:019283t%40t@bby.cqclzt3.mongodb.net/?retryWrites=true&w=majority&appName=bby";
+// ডেটাবেস ফাইল লোড করা
+let chatData = {};
+try {
+    const data = fs.readFileSync(path.join(__dirname, 'database.json'), 'utf8');
+    chatData = JSON.parse(data);
+} catch (err) {
+    console.error("ডেটাবেস ফাইল লোড করতে সমস্যা হচ্ছে:", err);
+}
 
-mongoose.connect(mongoURI)
-    .then(() => console.log("Connected to MongoDB Atlas ✅"))
-    .catch(err => console.log("Database Error: ", err));
+app.get('/baby', (req, res) => {
+    const userText = req.query.text ? req.query.text.trim().toLowerCase() : "";
 
-const replySchema = new mongoose.Schema({
-    question: { type: String, unique: true, required: true },
-    answers: [String]
-});
-const Reply = mongoose.model('Reply', replySchema);
-
-app.get('/', (req, res) => res.send("Baby API Live! 🚀"));
-
-app.get('/baby', async (req, res) => {
-    const { text, teach, reply } = req.query;
-    if (teach && reply) {
-        try {
-            const ques = teach.toLowerCase().trim();
-            const ans = reply.trim();
-            let data = await Reply.findOne({ question: ques });
-            if (data) {
-                if (!data.answers.includes(ans)) {
-                    data.answers.push(ans);
-                    await data.save();
-                }
-            } else {
-                await Reply.create({ question: ques, answers: [ans] });
-            }
-            return res.json({ status: "success", message: "✅ শিখেছি!" });
-        } catch (e) { return res.status(500).json({ error: "Error" }); }
+    if (!userText) {
+        return res.status(400).json({ error: "Please provide a query (text=...)" });
     }
-    if (text) {
-        try {
-            const input = text.toLowerCase().trim();
-            let data = await Reply.findOne({ question: input });
-            if (data) {
-                const randomReply = data.answers[Math.floor(Math.random() * data.answers.length)];
-                return res.json({ reply: randomReply });
-            } else {
-                const simRes = await axios.get("https://api.simsimi.net/v2/?text=" + encodeURIComponent(input) + "&lc=bn");
-                return res.json({ reply: simRes.data.success });
+
+    // উত্তর খোঁজার লজিক (হাজার হাজার ডেটার মধ্যে দ্রুত কাজ করবে)
+    let foundAnswer = "আমি এখনো এটি শিখিনি, আমাকে শেখাতে পারেন!";
+
+    // হুবহু মিললে উত্তর দিবে
+    if (chatData[userText]) {
+        foundAnswer = chatData[userText];
+    } else {
+        // কিওয়ার্ড ম্যাচিং (যদি পুরোটা না মিলে)
+        for (let key in chatData) {
+            if (userText.includes(key.toLowerCase())) {
+                foundAnswer = chatData[key];
+                break;
             }
-        } catch (e) { return res.json({ reply: "সার্ভার একটু বিজি!" }); }
+        }
     }
-    res.json({ message: "Welcome" });
+
+    res.json({
+        success: true,
+        answer: foundAnswer,
+        author: "Tamim"
+    });
 });
 
-app.listen(3000, () => console.log("Server started on port 3000"));
+app.listen(PORT, () => {
+    console.log(`API running on port ${PORT}`);
+});
